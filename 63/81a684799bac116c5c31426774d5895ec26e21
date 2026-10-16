@@ -1,0 +1,14 @@
+tests/test_core.py
+  h_c5be3b3dad7ca8 924-927,936,945,954,971-972,980-981
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.6",
+  "base_commit_sha": "6381a684799bac116c5c31426774d5895ec26e21",
+  "prompts": {},
+  "humans": {
+    "h_c5be3b3dad7ca8": {
+      "author": "Phil Beyer <6152278+pjbeyer@users.noreply.github.com>"
+    }
+  }
+}
