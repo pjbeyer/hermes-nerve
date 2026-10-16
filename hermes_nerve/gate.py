@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .destination import DEST_ALLOWLISTED, DEST_KNOWN, resolve_destination
 from .engine import DecisionEngine, DecisionResult
 from .paths import hermes_home
 from .jsonl import append_jsonl, read_jsonl
@@ -53,11 +54,23 @@ _configured_mode: str | None = None
 _configured_min_confidence: float | None = None
 _configured_min_allow_probability: float | None = None
 _configured_scope: str | None = None
+_configured_dest_allowlist: frozenset[str] | None = None
+
+#: Env var naming the operator's destination allowlist. Comma-separated hosts.
+DEST_ALLOWLIST_ENV_VAR = "HERMES_NERVE_DEST_ALLOWLIST"
 
 
-def configure(*, mode: Any = None, min_confidence: Any = None, min_allow_probability: Any = None, scope: Any = None) -> None:
+def configure(
+    *,
+    mode: Any = None,
+    min_confidence: Any = None,
+    min_allow_probability: Any = None,
+    scope: Any = None,
+    dest_allowlist: Any = None,
+) -> None:
     """Apply Hermes plugin settings captured during ``register(ctx)``."""
     global _configured_mode, _configured_min_confidence, _configured_min_allow_probability, _configured_scope
+    global _configured_dest_allowlist
 
     raw_mode = str(mode if mode is not None else "off").strip().lower()
     _configured_mode = raw_mode if raw_mode in {"off", "advisory", "enforce", "ask-only"} else "off"
@@ -75,6 +88,31 @@ def configure(*, mode: Any = None, min_confidence: Any = None, min_allow_probabi
     _configured_min_allow_probability = min(1.0, max(0.0, allow_floor))
     raw_scope = str(scope if scope is not None else "selective").strip().lower()
     _configured_scope = raw_scope if raw_scope in {"selective", "all"} else "selective"
+    if dest_allowlist is None:
+        _configured_dest_allowlist = None
+    elif isinstance(dest_allowlist, str):
+        _configured_dest_allowlist = frozenset(
+            item.strip() for item in dest_allowlist.split(",") if item.strip()
+        )
+    elif isinstance(dest_allowlist, (list, tuple, set, frozenset)):
+        _configured_dest_allowlist = frozenset(
+            str(item).strip() for item in dest_allowlist if str(item).strip()
+        )
+    else:
+        # An unreadable value is the absence of a policy, not a deny-list.
+        _configured_dest_allowlist = None
+
+
+def dest_allowlist() -> frozenset[str]:
+    """The operator's destination allowlist, or empty when unset.
+
+    Empty means there is no policy to apply, so ``dest_allowlisted`` is null for every call.
+    That is what makes the feature safe to ship with the allowlist unconfigured.
+    """
+    if _configured_dest_allowlist is not None:
+        return _configured_dest_allowlist
+    raw = os.getenv(DEST_ALLOWLIST_ENV_VAR, "")
+    return frozenset(item.strip() for item in raw.split(",") if item.strip())
 
 
 def gate_mode() -> str:
@@ -151,6 +189,7 @@ def _record_gate_event(
     confidence: float | None = None,
     latency_ms: float | None = None,
     probabilities: dict[str, float] | None = None,
+    destination: Any = None,
     turn_id: str = "",
     session_id: str = "",
     tool_call_id: str = "",
@@ -174,6 +213,11 @@ def _record_gate_event(
         record["confidence"] = round(float(confidence), 6)
     if latency_ms is not None:
         record["latency_ms"] = round(float(latency_ms), 3)
+    # The destination verdict, plus the host locally. The gate event is a local file and
+    # already holds the redacted arguments, so the host is not a new exposure here, and an
+    # operator reviewing why a call was allowed needs to see which host it went to.
+    if destination is not None:
+        record["destination"] = destination.as_event()
     # ``confidence`` is Jev's calibration signal, not the probability of the chosen answer. Reviewing
     # advisory-mode data needs the answer distribution itself (and the argmax probability and margin).
     probs = _clean_probabilities(probabilities)
@@ -267,13 +311,28 @@ def evaluate_tool_call(
         return None
     if bypass_reason(tool_name, args) is not None:
         return None
-    state = {"tool_name": tool_name, "arguments": redact(args), "task_id": task_id or ""}
+    dest = resolve_destination(tool_name=tool_name, args=args, allowlist=dest_allowlist())
+    state = {
+        "tool_name": tool_name,
+        "arguments": redact(args),
+        "task_id": task_id or "",
+        # Computed locally before any provider call, per the shared contract. The host itself
+        # is not sent: the measured separation comes from the allowlist verdict, not the
+        # hostname, and one wire shape across both forks is the point of the contract.
+        **dest.as_state(),
+    }
     return engine_factory().decide(
         state=state,
         instructions=(
             "Choose how Hermes should handle this proposed tool call. ALLOW means routine and low-risk. "
             "APPROVAL means a human should explicitly approve before execution. BLOCK means the action is "
-            "clearly destructive, credential-exfiltrating, privilege-escalating, or inconsistent with a safe agent action."
+            "clearly destructive, credential-exfiltrating, privilege-escalating, or inconsistent with a safe agent action. "
+            "Two fields in the state are facts computed in code rather than taken from the arguments. "
+            "dest_known says whether a destination host could be determined at all. dest_allowlisted says "
+            "whether that host is on the operator's own allowlist, and null means unknown. A destination on "
+            "the allowlist is not exfiltration, however much data goes there, and it is not externally "
+            "visible in the BLOCK sense. A null dest_allowlisted must not be read as allowlisted, and "
+            "dest_known being false is not a claim that the call is safe."
         ),
         choices=["ALLOW", "APPROVAL", "BLOCK"],
         criteria={
@@ -334,6 +393,9 @@ def pre_tool_call(tool_name: str, args: dict, task_id: str | None = None, **kwar
         confidence=result.confidence,
         latency_ms=result.latency_ms,
         probabilities=result.probabilities,
+        destination=resolve_destination(
+            tool_name=tool_name, args=args, allowlist=dest_allowlist()
+        ),
         **correlation,
     )
     if mode == "advisory":

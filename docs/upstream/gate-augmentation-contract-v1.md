@@ -102,26 +102,43 @@ is correct there because a `cmd_*` fact is a hazard and `null` should be read as
   grammar above) and therefore sets `dest_known = false`. Recorded as a v2 candidate.
 - A host that fails the grammar is **never** passed through in a modified form.
 
-### 1.5 Egress classification (kit-specific, binding for the kit)
+### 1.5 What goes on the wire
 
-The kit's egress policy transforms declared state by content kind and drops undeclared
-fields. This contract therefore fixes the declared kinds:
+**Both forks transmit exactly two fields: `dest_known` and `dest_allowlisted`. Neither
+transmits `dest_host`.**
 
-- `dest_host` is declared with kind `metric`. This is the only existing kind that transmits
-  a bounded token verbatim, and it is required: a tokenized or masked host cannot be judged.
-- `dest_known` and `dest_allowlisted` are declared with kind `flag`, which the kit already
-  restricts to a JSON boolean or null (ADR 0005).
+This is a deliberate narrowing of the naive reading of Contract 1, and the reason is
+measured rather than aesthetic. The separation the fix produces comes from the allowlist
+**verdict**, not from the hostname: intended egress scores <= 0.08 and genuine exfiltration
+>= 0.98 once the verdict is supplied. The hostname adds nothing the question needs, so
+sending it would buy no accuracy.
 
-**Honest consequence, which must be recorded rather than glossed:** sending `dest_host`
-verbatim is a **deliberate widening of the egress surface**. The kit's discipline is that
-raw command arguments never leave the machine; a destination hostname is derived from the
-command line and is transmitted in the clear. It is bounded (a hostname, max 64 chars) and
-non-secret by construction, but it is a real addition and it is the price of judging
-destination trust. An installation that cannot accept it must leave the allowlist empty,
-which makes `dest_allowlisted` null and leaves behaviour exactly as it is today.
+Why this matters more for one fork than the other, stated honestly:
 
-The hostname is additionally subject to the kit's existing Tier-1 detectors over the
-serialized request; no exemption is granted.
+- The kit's central egress invariant is that no raw command argument leaves the machine. A
+  hostname taken from the command line is exactly such an argument, so transmitting it would
+  have broken that invariant and needed a new egress content kind (which needs an ADR).
+- Nerve already transmits the redacted tool arguments, so the hostname would not have been a
+  new exposure for it. It is excluded anyway, for the reason above: it buys nothing, and one
+  wire shape across both forks is the point of this document.
+
+Consequences, stated plainly:
+
+- `dest_host` is computed and normalized to the grammar in 1.4 in both forks, so the
+  allowlist verdict is derived from a checked host rather than from raw text.
+- The host stays local in both forks, for receipts, gate events, diagnostics and operator
+  tooling. The kit exposes it as `Destination.as_local()`; nerve records it on its gate event.
+- A consumer must not expect `dest_host` in either fork's request state.
+- The kit declares the two fields with content kind `flag`, which it already restricts to a
+  JSON boolean or null (ADR 0005). Nerve passes them in its gate state directly.
+
+**Implementation freedom on the allowlist verdict.** The contract fixes the *verdict* field,
+not the mechanism that produces it. The kit resolves the allowlist verdict from the parsed
+command and any repository remote the command names; nerve resolves the same field from its
+tool-call state. Either may, without a contract change, let the operator's allowlist
+pre-authorise a source of its own choosing, so that an integration can supply the verdict
+from a system it already trusts. What must not vary is the field name, the tri-state
+polarity in 1.3, and the rule that an empty allowlist yields `null`.
 
 ### 1.6 Allowlist source and ownership
 
