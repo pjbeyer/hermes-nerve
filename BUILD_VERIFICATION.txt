@@ -1,6 +1,18 @@
 Nerve v0.2.2 build verification (promoted from dev17 RC)
 ==========================================
 
+> **HISTORICAL — v0.2.2 ONLY. NOT EVIDENCE FOR THE CURRENT RELEASE.**
+> The latest stable release is **v0.3.1** and `main` identifies as **0.3.2.dev0**. This file
+> describes the v0.2.2 build and is two stable releases stale. It was cited as release evidence
+> while being stale, which is the defect this banner exists to prevent. For the current
+> release, use the exact commit plus its GitHub Actions result; for the local gate, run
+> `python scripts/verify_release.py`.
+> Local gate at the fork baseline (macOS 26.7.1, Python 3.13.16): the full unit suite passed,
+> 389 tests, once the macOS /private/var path expectations in tests/test_core.py were
+> corrected. Before that correction the suite reported 6 failures, which this file's own
+> limitation note below partly explains.
+
+
 Scope
 -----
 Dev17 freezes the dev16 controller-completion / token-budget / Nerve runtime policy and adds release-hardening plus Laya/OpenJev open-model validation paths.

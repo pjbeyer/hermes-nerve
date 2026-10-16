@@ -1,6 +1,6 @@
 # Nerve v0.2.1.2 verification receipt
 
-> **Historical stable-release evidence.** This receipt verifies v0.2.1.2 only; it does not verify the current v0.2.2 development checkout. For development builds, use the exact commit plus its GitHub Actions result.
+> **Historical stable-release evidence.** This receipt verifies v0.2.1.2 only. It does not verify the current development checkout, and it does not verify the latest stable release, which is **v0.3.1** (`main` identifies as `0.3.2.dev0`). For any current build, use the exact commit plus its GitHub Actions result, or run `python scripts/verify_release.py` locally.
 
 ## Build target
 

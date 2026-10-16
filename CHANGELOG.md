@@ -10,6 +10,27 @@
 - Reconcile deterministic retry-loop suppression and task-relative progress/environment-thrash hardening onto clean `main` ancestry (#50).
 - Keep `v0.3.1rc1` immutable as a maintenance-only release candidate that intentionally excludes ask-only. Feature tracks #37, #38, and #40 remain separate from this development baseline.
 
+## 0.3.1 — stable maintenance release for the 0.3.0 line
+
+The latest stable release, published from its reviewed release commit. It concentrates bug
+fixes, hardening, completion/retry integrity, configuration correctness, setup QOL, and the
+explicitly approved opt-in ask-only Action Gate, while preserving v0.2.3-compatible Legacy
+behavior when no profile is selected.
+
+This section was missing until now: the CHANGELOG jumped from the 0.3.2 development line to
+0.3.0, so the release the README declares stable had no entry here. Reconstructed from the
+release's own reviewed scope in the README and `packaging/`; it records what shipped, not a
+new claim.
+
+- Add the opt-in ask-only Action Gate mode: enforce without hard blocks, where a BLOCK
+  verdict escalates to human approval instead of blocking (#41/#44).
+- Bound long-session context curation to the most-recent 48 eligible evidence items, with
+  deterministic deferral and fail-open telemetry (#48).
+- Re-evaluate machine-checkable Definition-of-Done criteria against current workspace state on
+  every completion attempt, so a stale PASS verdict cannot survive a later regression (#49).
+- Reconcile deterministic retry-loop suppression and task-relative progress/environment-thrash
+  hardening onto clean `main` ancestry (#50).
+
 ## 0.3.0 — profiles, modular runtime, and release hardening
 
 - Add `nerve setup` with Full Configuration, Fat Cat, Operator, Lean, Marie Kondo, Custom, and explicit Legacy behavior.
