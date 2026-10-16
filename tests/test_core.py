@@ -921,7 +921,10 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
             plugin = Path(td) / ".hermes" / "profiles" / "muna" / "plugins" / "hermes-nerve"
             plugin.mkdir(parents=True)
             inferred = paths.report_home(plugin)
-            self.assertEqual(inferred, Path(td) / ".hermes" / "profiles" / "muna")
+            # Expected resolved: report_home/infer resolve the path, and on macOS /var is a
+            # symlink to /private/var, so the unresolved spelling is a different string for
+            # the same directory.
+            self.assertEqual(inferred, (Path(td) / ".hermes" / "profiles" / "muna").resolve())
 
     def test_profile_report_home_uses_deepest_profile_inside_profile_scratch(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
@@ -930,7 +933,7 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
             plugin.mkdir(parents=True)
             (plugin / "plugin.yaml").write_text("name: hermes-nerve\n")
             inferred = paths.report_home(plugin)
-            self.assertEqual(inferred, outer / ".hermes" / "profiles" / "muna")
+            self.assertEqual(inferred, (outer / ".hermes" / "profiles" / "muna").resolve())
 
     def test_profile_report_home_ignores_nested_vendor_profiles_directory(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
@@ -939,7 +942,7 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
             nested = plugin / "vendor" / "profiles" / "not-a-hermes-profile"
             nested.mkdir(parents=True)
             inferred = paths.report_home(nested)
-            self.assertEqual(inferred, profile)
+            self.assertEqual(inferred, profile.resolve())
 
     def test_profile_report_home_ignores_unmarked_nested_dot_hermes_profile(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
@@ -948,7 +951,7 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
             nested = plugin / "node_modules" / ".hermes" / "profiles" / "evil"
             nested.mkdir(parents=True)
             inferred = paths.report_home(nested)
-            self.assertEqual(inferred, profile)
+            self.assertEqual(inferred, profile.resolve())
 
     def test_profile_report_home_does_not_infer_unrelated_profiles_directory(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
@@ -965,8 +968,8 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
             profile = Path(td) / ".hermes" / "profiles" / "brandnew"
             profile.mkdir(parents=True)
-            self.assertEqual(paths.infer_profile_home_from_path(profile), profile)
-            self.assertEqual(paths.report_home(profile), profile)
+            self.assertEqual(paths.infer_profile_home_from_path(profile), profile.resolve())
+            self.assertEqual(paths.report_home(profile), profile.resolve())
 
     def test_profile_report_home_accepts_marked_alternate_root_profile(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
@@ -974,8 +977,8 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
             plugin = profile / "plugins" / "hermes-nerve"
             plugin.mkdir(parents=True)
             (plugin / "plugin.yaml").write_text("name: hermes-nerve\n")
-            self.assertEqual(paths.infer_profile_home_from_path(plugin), profile)
-            self.assertEqual(paths.report_home(plugin), profile)
+            self.assertEqual(paths.infer_profile_home_from_path(plugin), profile.resolve())
+            self.assertEqual(paths.report_home(plugin), profile.resolve())
 
     def test_receipt_report_aggregates_cost_tokens_and_contracts(self):
         with tempfile.TemporaryDirectory() as td:
