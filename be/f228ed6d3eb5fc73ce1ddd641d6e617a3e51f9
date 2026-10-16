@@ -1,0 +1,18 @@
+BUILD_VERIFICATION.txt
+  h_c5be3b3dad7ca8 4-15
+CHANGELOG.md
+  h_c5be3b3dad7ca8 13-33
+VERIFICATION.md
+  h_c5be3b3dad7ca8 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.6",
+  "base_commit_sha": "bef228ed6d3eb5fc73ce1ddd641d6e617a3e51f9",
+  "prompts": {},
+  "humans": {
+    "h_c5be3b3dad7ca8": {
+      "author": "Phil Beyer <6152278+pjbeyer@users.noreply.github.com>"
+    }
+  }
+}
