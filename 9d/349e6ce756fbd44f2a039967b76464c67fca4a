@@ -1,0 +1,20 @@
+hermes_nerve/unattended.py
+  s_5c29cf94de1cce::t_d55b8126200d0f 42-48
+  s_5c29cf94de1cce::t_f3f4b50a985bcf 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "development:1.7.6",
+  "base_commit_sha": "9d349e6ce756fbd44f2a039967b76464c67fca4a",
+  "prompts": {},
+  "sessions": {
+    "s_5c29cf94de1cce": {
+      "agent_id": {
+        "tool": "hermes",
+        "id": "20261016_073945_d813bedc",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "Phil Beyer <6152278+pjbeyer@users.noreply.github.com>"
+    }
+  }
+}
