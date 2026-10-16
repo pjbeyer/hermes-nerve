@@ -154,14 +154,26 @@ of the baseline commit onto `upstream/main` reported `up to date`.
 
 ## Divergence inventory
 
-| branch | change | upstreamable |
-|---|---|---|
-| `aug/baseline` | This file, plus the shared gate augmentation contract under `docs/upstream/`. | No. Fork bookkeeping. |
-| `aug/dest-trust` | Compute destination trust in code and supply it to the decision engine. | Yes. General. |
-| `aug/unattended` | Detect unattended (cron) sessions and stop emitting escalations that presume a human. | Yes. General. |
-| `aug/macos-path-tests` | Normalize the profile-path expectation in the six macOS-failing tests, or assert on the resolved path. | Yes. Test-side portability fix. |
-| `aug/release-docs` | Reconcile `CHANGELOG.md`, `BUILD_VERIFICATION.txt` and `VERIFICATION.md` with the declared stable release. | Yes. Documentation fix. |
-| `aug/calibration` | Publish the labelled corpus and methodology behind the shipped thresholds. | Yes, if the data can be produced honestly. |
+The augmentation branches form a **stacked series**: each builds on the one above it, so the
+tip of the last branch contains all of them. Only `aug/dest-trust` branches directly from
+`main`. This is deliberate while the work is unreleased; before proposing anything upstream,
+each branch is rebased onto `upstream/main` independently and offered as its own pull request,
+since a stack cannot be reviewed as one change.
+
+| branch | tip | change | upstreamable |
+|---|---|---|---|
+| `main` | `0d0252a` | This file, plus the shared gate augmentation contract under `docs/upstream/`. | No. Fork bookkeeping. |
+| `aug/dest-trust` | `bacfef5` | Compute destination trust in code and supply it to the decision engine. | Yes. General. |
+| `aug/unattended` | `9d349e6` | Detect unattended (cron) sessions and stop emitting escalations that presume a human. | Yes. General. |
+| `aug/macos-path-tests` | `b14e959` | Correct the six macOS-failing profile-path tests, and reconcile `CHANGELOG.md`, `BUILD_VERIFICATION.txt` and `VERIFICATION.md` with the declared stable release. | Yes. Test-side portability fix plus documentation fix. |
+
+Still to do, not yet on a branch: publish the labelled corpus and methodology behind the
+shipped thresholds. Upstreamable only if that data can be produced honestly.
+
+The shared contract is byte-identical in both forks at every branch tip that contains it
+(`sha256 20f7cc6a18cea0b8...`). Both contracts were revised once, and the revision is carried
+inside the destination-trust commit rather than as a separate documentation commit, so the
+two forks hold the same text at the same point in the series.
 
 Nothing in this fork hardcodes an installation-specific host, path or credential. The
 destination allowlist is operator configuration with no shipped default.
