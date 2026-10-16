@@ -18,6 +18,13 @@ from typing import Any, Callable
 
 from .destination import DEST_ALLOWLISTED, DEST_KNOWN, resolve_destination
 from .engine import DecisionEngine, DecisionResult
+from .unattended import (
+    POLICY_ENV_VAR as UNATTENDED_POLICY_ENV_VAR,
+    UnattendedPolicy,
+    is_unattended,
+    policy_from_env,
+    resolve_escalation,
+)
 from .paths import hermes_home
 from .jsonl import append_jsonl, read_jsonl
 from .privacy import canonical_hash, redact
@@ -55,6 +62,7 @@ _configured_min_confidence: float | None = None
 _configured_min_allow_probability: float | None = None
 _configured_scope: str | None = None
 _configured_dest_allowlist: frozenset[str] | None = None
+_configured_unattended_policy: UnattendedPolicy | None = None
 
 #: Env var naming the operator's destination allowlist. Comma-separated hosts.
 DEST_ALLOWLIST_ENV_VAR = "HERMES_NERVE_DEST_ALLOWLIST"
@@ -67,10 +75,11 @@ def configure(
     min_allow_probability: Any = None,
     scope: Any = None,
     dest_allowlist: Any = None,
+    unattended_policy: Any = None,
 ) -> None:
     """Apply Hermes plugin settings captured during ``register(ctx)``."""
     global _configured_mode, _configured_min_confidence, _configured_min_allow_probability, _configured_scope
-    global _configured_dest_allowlist
+    global _configured_dest_allowlist, _configured_unattended_policy
 
     raw_mode = str(mode if mode is not None else "off").strip().lower()
     _configured_mode = raw_mode if raw_mode in {"off", "advisory", "enforce", "ask-only"} else "off"
@@ -101,6 +110,61 @@ def configure(
     else:
         # An unreadable value is the absence of a policy, not a deny-list.
         _configured_dest_allowlist = None
+    if unattended_policy is None:
+        _configured_unattended_policy = None
+    else:
+        raw_policy = str(unattended_policy).strip().lower()
+        _configured_unattended_policy = next(
+            (item for item in UnattendedPolicy if item.value == raw_policy), None
+        )
+
+
+def unattended_policy() -> UnattendedPolicy:
+    """The configured unattended policy, or the default.
+
+    The default (``record``) does not break automation and does not silently allow: the
+    escalation is already written to the durable gate-event stream, so an operator can count
+    and review what was suppressed.
+    """
+    if _configured_unattended_policy is not None:
+        return _configured_unattended_policy
+    return policy_from_env()
+
+
+def _apply_unattended_policy(
+    *,
+    task_id: str | None,
+    tool_name: str,
+    rule_key: str,
+    message: str,
+    correlation: dict[str, Any],
+) -> dict[str, str] | None:
+    """Resolve an escalation that presumes a human.
+
+    ``rule_key`` is the stable approval grain and must not carry measured values: an approval
+    granted for one rule_key is cached per session, so a key containing a float would mint a
+    new key on every call and fragment the grain. The numbers belong in ``message``.
+
+    Returns the escalation payload to emit, or None when the unattended policy lets the call
+    proceed. The suppressed escalation is recorded either way, so a policy of ``record`` is not
+    the same as doing nothing.
+    """
+    unattended = is_unattended(task_id)
+    policy = unattended_policy()
+    outcome = resolve_escalation(unattended=unattended, policy=policy)
+    if unattended and outcome.proceed:
+        _record_gate_event(
+            tool_name=tool_name,
+            action="unattended-suppressed",
+            reason=rule_key,
+            provider_call=False,
+            unattended=True,
+            would_escalate=True,
+            policy=policy.value,
+            **correlation,
+        )
+        return None
+    return {"action": "approve", "message": message, "rule_key": rule_key}
 
 
 def dest_allowlist() -> frozenset[str]:
@@ -190,6 +254,9 @@ def _record_gate_event(
     latency_ms: float | None = None,
     probabilities: dict[str, float] | None = None,
     destination: Any = None,
+    unattended: bool | None = None,
+    would_escalate: bool | None = None,
+    policy: str | None = None,
     turn_id: str = "",
     session_id: str = "",
     tool_call_id: str = "",
@@ -218,6 +285,14 @@ def _record_gate_event(
     # operator reviewing why a call was allowed needs to see which host it went to.
     if destination is not None:
         record["destination"] = destination.as_event()
+    # A suppressed escalation is a durable record, not silence: this is what separates the
+    # default unattended policy from doing nothing.
+    if unattended is not None:
+        record["unattended"] = bool(unattended)
+    if would_escalate is not None:
+        record["would_escalate"] = bool(would_escalate)
+    if policy is not None:
+        record["unattended_policy"] = str(policy)
     # ``confidence`` is Jev's calibration signal, not the probability of the chosen answer. Reviewing
     # advisory-mode data needs the answer distribution itself (and the argmax probability and margin).
     probs = _clean_probabilities(probabilities)
@@ -375,11 +450,15 @@ def pre_tool_call(tool_name: str, args: dict, task_id: str | None = None, **kwar
         # Advisory fails open; enforce and ask-only fail toward HUMAN approval, not
         # execution or hard block.
         if mode in {"enforce", "ask-only"}:
-            return {
-                "action": "approve",
-                "message": "Nerve could not obtain a decision; human approval is required (fail-to-human).",
-                "rule_key": "nerve:provider-unavailable",
-            }
+            # Fail-to-human is the right default and fail-to-nobody in a cron run, so the
+            # unattended policy decides which of the two this is.
+            return _apply_unattended_policy(
+                task_id=task_id,
+                tool_name=tool_name,
+                rule_key="nerve:provider-unavailable",
+                message="Nerve could not obtain a decision; human approval is required (fail-to-human).",
+                correlation=correlation,
+            )
         return None
     if result is None:
         return None
@@ -403,11 +482,13 @@ def pre_tool_call(tool_name: str, args: dict, task_id: str | None = None, **kwar
 
     min_conf = minimum_confidence()
     if result.confidence < min_conf:
-        return {
-            "action": "approve",
-            "message": f"Nerve confidence {result.confidence:.3f} is below {min_conf:.3f}; human approval required.",
-            "rule_key": "nerve:low-confidence",
-        }
+        return _apply_unattended_policy(
+            task_id=task_id,
+            tool_name=tool_name,
+            rule_key="nerve:low-confidence",
+            message=f"Nerve confidence {result.confidence:.3f} is below {min_conf:.3f}; human approval required.",
+            correlation=correlation,
+        )
     if result.value == "BLOCK":
         # Ask-only enforce variant: a single classifier call is a better second
         # opinion that escalates to a human than a hard blocker. The verdict,
@@ -415,21 +496,28 @@ def pre_tool_call(tool_name: str, args: dict, task_id: str | None = None, **kwar
         # so an operator can count near-blocks by filtering evaluated rows on
         # value=BLOCK under mode=ask-only.
         if mode == "ask-only":
-            return {
-                "action": "approve",
-                "message": f"Nerve verdict is BLOCK ({result.confidence:.3f} confidence); human approval required (ask-only mode).",
-                "rule_key": _block_approval_rule_key(tool_name, args),
-            }
+            # Under ask-only a BLOCK is by configuration an escalation rather than a block, so
+            # it is subject to the unattended policy like any other escalation. In plain
+            # enforce the fall-through below still hard-blocks, policy or not.
+            return _apply_unattended_policy(
+                task_id=task_id,
+                tool_name=tool_name,
+                rule_key=_block_approval_rule_key(tool_name, args),
+                message=f"Nerve verdict is BLOCK ({result.confidence:.3f} confidence); human approval required (ask-only mode).",
+                correlation=correlation,
+            )
         return {
             "action": "block",
             "message": f"Blocked by Nerve ({result.confidence:.3f} confidence).",
         }
     if result.value == "APPROVAL":
-        return {
-            "action": "approve",
-            "message": f"Nerve requests human approval ({result.confidence:.3f} confidence).",
-            "rule_key": f"nerve:{tool_name}",
-        }
+        return _apply_unattended_policy(
+            task_id=task_id,
+            tool_name=tool_name,
+            rule_key=f"nerve:{tool_name}",
+            message=f"Nerve requests human approval ({result.confidence:.3f} confidence).",
+            correlation=correlation,
+        )
     # ALLOW is the only verdict that continues without a human, so it carries the
     # strictest gate: the probability of the chosen answer itself, not just its
     # calibration signal. Labeled replays (keeltrace/hermes-nerve#19) show
@@ -439,11 +527,13 @@ def pre_tool_call(tool_name: str, args: dict, task_id: str | None = None, **kwar
     if p_allow is not None:
         min_allow = minimum_allow_probability()
         if p_allow < min_allow:
-            return {
-                "action": "approve",
-                "message": f"Nerve p(ALLOW) {p_allow:.3f} is below {min_allow:.3f}; human approval required.",
-                "rule_key": "nerve:low-allow-probability",
-            }
+            return _apply_unattended_policy(
+                task_id=task_id,
+                tool_name=tool_name,
+                rule_key="nerve:low-allow-probability",
+                message=f"Nerve p(ALLOW) {p_allow:.3f} is below {min_allow:.3f}; human approval required.",
+                correlation=correlation,
+            )
     # No usable ALLOW probability (provider without a distribution): the
     # confidence gate above remains the only automatic-allow signal.
     return None

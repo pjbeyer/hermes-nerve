@@ -98,6 +98,7 @@ def _register_legacy(ctx):
         min_allow_probability=ctx.get_config("min_allow_probability", os.getenv("HERMES_NERVE_MIN_ALLOW_PROBABILITY", 0.90)),
         scope=ctx.get_config("gate_scope", "selective"),
         dest_allowlist=ctx.get_config("gate_dest_allowlist", []),
+        unattended_policy=ctx.get_config("unattended_policy", "record"),
     )
     receipts.configure(detail=ctx.get_config("receipt_detail", "hash"))
     ledger.configure(
@@ -351,6 +352,7 @@ def _register_profile(ctx):
         min_allow_probability=get("min_allow_probability",os.getenv("HERMES_NERVE_MIN_ALLOW_PROBABILITY",0.90)),
         scope=get("gate_scope","selective"),
         dest_allowlist=get("gate_dest_allowlist",[]),
+        unattended_policy=get("unattended_policy","record"),
     )
     receipts.configure(enabled=policy.enabled("receipts"),detail=get("receipt_detail","hash"))
     ledger.configure(
