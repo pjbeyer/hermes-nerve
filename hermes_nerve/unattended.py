@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 
 #: The environment variable Hermes exports for a cron run.
 CRON_SESSION_ENV_VAR = "HERMES_CRON_SESSION"
@@ -39,8 +39,13 @@ CRON_TASK_ID_PREFIX = "cron:"
 _TRUEISH = frozenset({"1", "true", "yes", "on"})
 
 
-class UnattendedPolicy(StrEnum):
-    """What the gate does with an escalation when no human is present."""
+class UnattendedPolicy(str, Enum):
+    """What the gate does with an escalation when no human is present.
+
+    Inherits ``str`` as well as ``Enum`` rather than using ``StrEnum``: this repository supports
+    Python 3.10, and ``StrEnum`` is 3.11 and later. The ``str`` mixin keeps the members usable
+    wherever a plain string is expected, which is what the gate-event record needs.
+    """
 
     #: Do not escalate; continue. The escalation is already recorded in the gate event.
     RECORD = "record"
